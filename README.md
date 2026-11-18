@@ -1,416 +1,121 @@
-# Termux-MCP
+# Linux-MCP
 
-A lightweight HTTP server that runs inside Termux on Android, exposing shell execution and device capabilities as a streaming API. Built for AI agents, LLM tool-calling, and automation scripts.
+A local-first MCP and HTTP automation server for **Ubuntu and Linux desktops/servers**. This is the Linux port of Termux-MCP. It keeps the existing REST API, native MCP transports, command safety gates, capability tokens, audit trail, playbooks and smart tools while using the host Linux environment instead of Android/Termux paths.
 
-```text
-AI Agent --> POST /run {"cmd": "ls -la"} --> Termux-MCP --> Termux Shell
-                                                  |
-                      <-- chunked streaming output -+
+> Android-only capabilities (Termux:API, SMS, phone calls, Android UI automation, Android camera/sensors and Android storage intents) are not available on a normal Ubuntu machine. They are not emulated. Use Linux-native tools and integrations for host capabilities.
+
+## Requirements
+
+- Ubuntu 22.04 or newer (other systemd-based Debian/Ubuntu derivatives should work)
+- Python 3.10+
+- `git`, `curl`, `procps`, `iproute2`, `util-linux`, `tar`, `gzip`
+- Optional: `systemd`, `network-manager`, `upower`, `brightnessctl`, `pactl`, `ffmpeg`, `tesseract-ocr`
+
+## Install
+
+```bash
+sudo apt update
+sudo apt install -y git python3 python3-venv python3-pip curl procps iproute2 util-linux tar gzip
+git clone https://github.com/FarizGD/linux-mcp.git
+cd linux-mcp
+./scripts/install-ubuntu.sh
 ```
 
-## Two commands — which do I run?
+The installer creates an isolated virtual environment at `~/.local/share/linux-mcp/venv`, installs the project, and adds `linux-mcp` and `linux-native-mcp` launchers to `~/.local/bin`. Add that directory to PATH if needed:
 
-| Command | What it is |
-|---|---|
-| `termux-mcp` | REST API daemon on `:8080` (this README's endpoints) |
-| `termux-native-mcp` | **Native MCP server** (Model Context Protocol, spec 2025-06-18) for MCP clients: RikkaHub, desktop AI apps (Cursor, ...) |
-
-Both install together via `pkg install termux-mcp` and run as **separate
-processes** — starting `termux-native-mcp` never touches the REST daemon's
-port, state or behavior.
-
-```
-termux-mcp                  # REST API on 127.0.0.1:8080
-termux-native-mcp           # native MCP, Streamable HTTP on 127.0.0.1:8081
-termux-native-mcp --stdio   # native MCP over stdin/stdout (desktop clients)
+```bash
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
-RikkaHub (same phone):
+## Run
+
+REST API:
+
+```bash
+linux-mcp
+```
+
+Native MCP over stdio:
+
+```bash
+linux-native-mcp --stdio
+```
+
+Native MCP over Streamable HTTP:
+
+```bash
+linux-native-mcp
+```
+
+Default endpoints:
+
+- REST API: `http://127.0.0.1:8080`
+- Native MCP: `http://127.0.0.1:8081/mcp`
+- Health check: `http://127.0.0.1:8080/ping`
+
+## Connect an MCP client
+
+For a local stdio client:
 
 ```json
 {
-  "type": "http",
-  "url": "http://127.0.0.1:8081/mcp",
-  "commonOptions": {
-    "name": "Termux",
-    "enable": true,
-    "headers": [["Authorization", "Bearer <TERMUX_MCP_AUTH_TOKEN>"]]
+  "mcpServers": {
+    "linux": {
+      "command": "/home/YOUR_USER/.local/bin/linux-native-mcp",
+      "args": ["--stdio"]
+    }
   }
 }
 ```
 
-Desktop MCP client (over ssh): `{"command": "ssh", "args": ["android", "termux-native-mcp", "--stdio"]}`
+For a client supporting Streamable HTTP:
 
-Both servers share the same safety system (risk gates, file snapshots,
-trash) because they run the same handler code.
-
-## Installation
-
-### pip (recommended)
-
-```bash
-pkg update && pkg install python -y
-pip install termux-mcp
-termux-mcp
+```json
+{
+  "mcpServers": {
+    "linux": {
+      "url": "http://127.0.0.1:8081/mcp"
+    }
+  }
+}
 ```
 
-This installs a global `termux-mcp` command — it runs from any directory, and
-`pip install -U termux-mcp` upgrades it.
-
-### From a clone
-
-```bash
-pkg update && pkg install python git -y
-git clone https://github.com/termuxgpt/termux-mcp
-cd termux-mcp
-pip install .
-termux-mcp
-```
-
-`pip install .` registers the command globally, so the `cd` is only needed for
-the install itself. Without it, `python -m termux_mcp` only works from inside
-the clone.
-
-### Package repository
-
-```bash
-curl -fSL https://termux-mcp.pages.dev/add-repo.sh | bash
-pkg install termux-mcp
-termux-mcp
-```
-
-## Quick Test
-
-```bash
-curl http://localhost:8080/ping
-curl -X POST http://localhost:8080/run -H "Content-Type: application/json" -d '{"cmd": "ls ~"}'
-```
-
-## Termux Tutorial Apps (AD)
-<center><a href="https://bit.ly/termuxtoolbox"><img src="https://raw.githubusercontent.com/Bhai4You/bhai4you/refs/heads/master/termux_toolbox_app_banner.png" alt="Termux Toolbox"  ></a></br><a href="https://play.google.com/store/apps/details?id=com.codeninja.termuxbannerx"> <img src="https://raw.githubusercontent.com/Bhai4You/bhai4you/refs/heads/master/termux-bannerx.png" alt="Termux BannerX"  ></a> <a href="https://play.google.com/store/apps/details?id=com.codeninja.termuxtutor"><img src="https://raw.githubusercontent.com/Bhai4You/bhai4you/refs/heads/master/termux-tutor.png" alt="Termux Tutor"  ></a></center></br>
+Replace the example home path with the output of `echo "$HOME"`.
 
 ## Configuration
 
 | Variable | Default | Description |
 |---|---|---|
-| `TERMUX_MCP_PORT` | `8080` | HTTP listen port |
-| `TERMUX_MCP_HOST` | `127.0.0.1` | Bind address. Use `127.0.0.1` for local-only. |
-| `TERMUX_MCP_TIMEOUT` | `0` | Command timeout in seconds. `0` = **no timeout** (default) — long operations like `pkg upgrade` run until they finish. Set a positive value to re-enable the watchdog kill. |
-| `TERMUX_MCP_AUTH` | off | Authentication is **off by default** (loopback only). Set `on` to require a token: it is read from `TERMUX_MCP_AUTH_TOKEN`, or generated into `~/.termux-mcp/token` (mode 0600) on first start. |
-| `TERMUX_MCP_AUTH_TOKEN` | (generated) | Use this token instead of the generated one |
-| `TERMUX_MCP_CONFIG_DIR` | `~/.termux-mcp` | Token, capability tokens, `policy.json`, event logs |
-| `TERMUX_MCP_LOG_EVENTS` | `1` | `0` stops the JSONL event log (`logs/events.jsonl`) |
-| `TERMUX_MCP_MAX_OUTPUT` | `20000` | Max streamed output bytes per command. Output beyond this is drained (process keeps running) but not sent; a truncation marker is appended. Keeps LLM tool results small and token-efficient. |
+| `TERMUX_MCP_HOST` | `127.0.0.1` | HTTP bind address |
+| `TERMUX_MCP_PORT` | `8080` | REST API port |
+| `TERMUX_MCP_TIMEOUT` | `0` | Shell command timeout in seconds; 0 disables the global timeout |
+| `TERMUX_MCP_MAX_OUTPUT` | `20000` | Maximum streamed output bytes per command |
+| `TERMUX_MCP_AUTH_TOKEN` | generated/empty per existing auth behavior | Bearer token |
+| `TERMUX_MCP_HOME` | `$HOME` | Home directory used by the server |
 
-The app needs no setup: termux-mcp listens on loopback and the app connects straight to it. If you
-want a token instead, set `TERMUX_MCP_AUTH=on` before starting the server — `termux-mcp token` prints
-it for clients that speak `Authorization: Bearer ...`, and `termux-mcp token --rotate` replaces it
-immediately. When binding to a non-loopback address, authentication cannot be switched off.
+Keep the server bound to loopback unless remote access is required. When binding to a non-loopback address, configure authentication first. Do not expose an unauthenticated shell server to the internet.
 
-## Endpoints
+## Linux compatibility
 
-### Shell & Filesystem
-
-| Endpoint | Method | Parameters | Description |
-|---|---|---|---|
-| `/run` | POST | `cmd` (string, required) | Execute a shell command with streaming output. The working directory is process-wide and shared between clients over HTTP — chain `cd x && cmd` for isolation. |
-| `/ls` | POST | `path` (string, default `.`), `detailed` (bool) | List directory contents |
-| `/read` | POST | `path` (string, required) | Read a file (first 500 lines) |
-| `/write` | POST | `path`, `content` | Write content to a file via base64 encoding |
-| `/mkdir` | POST | `path` | Create directory (`mkdir -p`) |
-| `/delete` | POST | `path`, `recursive` (bool), `confirmed` (bool) | Delete file or directory. Requires confirmation. |
-| `/search` | POST | `path`, `pattern` (or `query`/`name`) | Find files by name pattern |
-| `/cancel` | POST | | Cancel currently running command |
-
-### System Monitor & Management
-
-| Endpoint | Method | Parameters | Description |
-|---|---|---|---|
-| `/system-info` | POST | | Live CPU%, RAM, disk, temperature, uptime as JSON |
-| `/process-list` | POST | `limit` (int, default 20) | List running processes sorted by CPU usage |
-| `/process-kill` | POST | `pid` (int), `signal` (int, default 15) | Terminate a process by PID |
-| `/health` | POST | | Full diagnostic: core packages, Termux:API, storage, network, permissions |
-
-### Cron Scheduler
-
-| Endpoint | Method | Parameters | Description |
-|---|---|---|---|
-| `/cron-add` | POST | `schedule`, `command`, `label` | Add a cron job. Schedule format: `0 3 * * *` for daily at 3am. |
-| `/cron-list` | POST | | List all cron jobs |
-| `/cron-remove` | POST | `label` (optional) | Remove cron jobs matching a label, or all if no label given |
-
-### Backup, Restore & Cloud Sync
-
-| Endpoint | Method | Parameters | Description |
-|---|---|---|---|
-| `/backup` | POST | `target` (home/packages/configs), `output`, `include` | Create a tar.gz backup of home, packages, or configs |
-| `/restore` | POST | `file`, `target` | Restore from a backup file |
-| `/cloud-sync` | POST | `action` (backup/restore/list), `target`, `output`, `file` | Create backups and provide cloud upload instructions |
-| `/changes_list` | POST | `format` (json/text), `limit`, `since`, `task_id` | Every file write, delete and trash the safety layer recorded, newest first, with a `revertable` flag |
-| `/undo` | POST | `path`, `limit`, `since`, `task_id`, `confirmed` | Put files back to their earlier contents from the snapshots. Needs `confirmed: true`, since an undo is itself undone by taking a snapshot first |
-
-### Code & Files
-
-| Endpoint | Method | Parameters | Description |
-|---|---|---|---|
-| `/diff` | POST | `file`, `file2` (optional) | Show diff between files, or file stats for a single file |
-| `/patch` | POST | `file`, `patch` | Apply a diff patch to a file |
-
-### Device & Sensors
-
-| Endpoint | Method | Parameters | Description |
-|---|---|---|---|
-| `/battery` | POST | | Battery status via `termux-battery-status` |
-| `/location` | POST | `provider` (gps/network, default gps) | GPS coordinates via `termux-location` |
-| `/wifi-info` | POST | | WiFi connection details |
-| `/wifi-scan` | POST | | Scan nearby WiFi networks |
-| `/camera-photo` | POST | `camera_id` (0/1), `output` | Take a photo |
-| `/camera-info` | POST | | List available cameras |
-| `/screenshot` | POST | `output` | Take a screenshot |
-| `/sensor` | POST | `sensor`, `limit` | Read sensor data |
-| `/fingerprint` | POST | | Fingerprint authentication |
-| `/vibrate` | POST | `duration_ms` | Vibrate the device |
-| `/torch` | POST | `state` (on/off) | Toggle flashlight |
-| `/brightness` | POST | `level` | Get/set screen brightness |
-| `/volume` | POST | `stream`, `level` | Get/set volume |
-
-### Communication
-
-| Endpoint | Method | Parameters | Description |
-|---|---|---|---|
-| `/notify` | POST | `title`, `content`, `priority`, `id` | Send an Android notification |
-| `/notify-remove` | POST | `id` | Remove a notification |
-| `/sms-send` | POST | `number`, `text` | Send an SMS |
-| `/sms-inbox` | POST | `limit` | Read SMS inbox |
-| `/tts-speak` | POST | `text`, `rate`, `pitch` | Text-to-speech |
-| `/speech-to-text` | POST | | Speech recognition |
-| `/toast` | POST | `text` | Show an Android toast |
-| `/dialog` | POST | `title`, `message` | Show a confirmation dialog |
-| `/share` | POST | `text` or `file` | Share via Android intent |
-| `/clipboard-get` | POST | | Read clipboard |
-| `/clipboard-set` | POST | `text` | Set clipboard |
-| `/call` | POST | `number` | Initiate a phone call |
-| `/contacts` | POST | | List contacts |
-| `/list-apps` | POST | | List installed apps |
-
-### Network
-
-| Endpoint | Method | Parameters | Description |
-|---|---|---|---|
-| `/open-url` | POST | `url` | Open URL in browser |
-| `/download` | POST | `url`, `description`, `title` | Download a file |
-| `/public-ip` | POST | | Get public IP address |
-| `/weather` | POST | `city` | Weather via wttr.in |
-| `/speedtest` | POST | | Internet speed test |
-| `/web-server` | POST | `action` (start/stop/status), `port`, `directory` | Start a Python HTTP server |
-
-### Media
-
-| Endpoint | Method | Parameters | Description |
-|---|---|---|---|
-| `/image-process` | POST | `action`, `input`, `output`, `width`, `height` | Image operations via ImageMagick |
-| `/video-process` | POST | `action`, `input`, `output`, `crf`, `start`, `duration` | Video operations via FFmpeg |
-| `/text-extract` | POST | `input`, `lang` | OCR via Tesseract |
-| `/qrcode` | POST | `text`, `output` | Generate QR code |
-| `/scan-barcode` | POST | `camera_id`, `output` | Scan barcode via camera |
-| `/screen-record` | POST | `output`, `action` (start/stop) | Screen recording |
-| `/microphone-record` | POST | `output`, `limit_seconds`, `action` | Microphone recording |
-| `/wallpaper` | POST | `file`, `lockscreen` | Set wallpaper |
-
-### Doctor & Playbooks
-
-| Endpoint | Method | Parameters | Description |
-|---|---|---|---|
-| `/do` | POST | `text`, `dry_run`, `confirmed`, `format` | Do what the user asked, in their own words, when the phone already knows how. Matches their words to a playbook and fills its values — free, no model. If it is not known, nothing runs |
-| `/doctor` | POST | `check`, `fix`, `confirmed`, `task_id`, `format` (text/json) | Check this install for the things that break everyday work — missing tools, unlinked storage, a stuck package manager, no network. Reports and names the fix; with `fix: true` it applies each failing check's repair (its requirements first), then re-checks. Every repair command goes through the same risk gate, snapshots and journal as any other |
-| `/capsule` | POST | `action` (export/preview/import), `playbook`, `path`, `sign`, `signer`, `confirmed`, `overwrite`, `format` | Move a saved task between phones as one file: a checksum, a manifest of what it does and would install, and an SSH signature when the phone has a key. A preview shows all of it; nothing installs without `confirmed: true` |
-| `/harvest` | POST | `steps`, `title`, `values`, `phrases`, `playbook`, `overwrite`, `format` | Save what was just done as a task the phone can repeat with no model: the values in the commands become slots. Validated before it lands in `~/termuxGPT/playbooks/` |
-| `/playbooks` | POST | `playbook`, `run`, `dry_run`, `with`, `confirmed`, `task_id`, `undo`, `format` | List the library, read one, run one, or undo a run. A run meets its requirements first, verifies each step, and writes a record — so the whole thing undoes as one unit |
-
-Playbooks are declarative, one JSON file each, and validated when they load:
-phrases, typed slots, preconditions, steps with a verification, and the line
-to say afterwards. The doctor's checks are the same objects — a check is a
-probe with a fix, and a playbook's `requires` names a check. Ten ship with
-the package (update and upgrade, install anything, clone a repo, storage
-setup, check space, find what is eating it, clear the package cache, battery,
-wifi, an SSH key); `harvest` adds more, saved under `~/termuxGPT/playbooks/`
-and loaded alongside the shipped ones.
-
-### Smart Tools
-
-| Endpoint | Method | Parameters | Description |
-|---|---|---|---|
-| `/smart-install` | POST | `packages`, `manager`, `dry_run` | Intelligent package install with conflict detection |
-| `/diagnose` | POST | `intent` (python/pip/node/git/storage/packages/all) | Run diagnostics for a specific tool |
-| `/pkg-smart` | POST | `intent`, `install` | Intent-based package discovery (60+ mappings) |
-| `/dev-env` | POST | `intent`, `name` | One-click development environment setup |
-| `/profile` | POST | `profile`, `dry_run` | Pre-configured Termux profiles (dev, python, web, hacker, etc.) |
-| `/optimize` | POST | | Performance analysis and recommendations |
-| `/error-explain` | POST | `error`, `command` | Gather context to help AI explain errors |
-| `/permission-fix` | POST | `target` | Diagnose and fix permission issues |
-| `/storage-audit` | POST | | Find large files and suggest cleanup |
-| `/deps-tree` | POST | `package` | Show package dependency tree |
-| `/config-fix` | POST | `config` | Check Termux configuration issues |
-| `/review` | POST | `file` | Static analysis (syntax check, linting) |
-| `/log-analyze` | POST | `file` | Extract errors and warnings from log files |
-| `/script-gen` | POST | `description`, `type`, `output` | Generate shell or Python script templates |
-| `/regex` | POST | `pattern`, `test` | Test regex patterns with grep |
-| `/db-design` | POST | `schema`, `output` | Create SQLite database from schema description |
-| `/db-query` | POST | `database`, `query` | Execute SQLite query |
-| `/translate` | POST | `text`, `target_lang`, `source_lang` | Text translation |
-| `/tutorial` | POST | `topic` | Interactive Termux learning guide |
-
-### Git Operations
-
-| Endpoint | Method | Parameters | Description |
-|---|---|---|---|
-| `/git-op` | POST | `action` (clone/status/log/diff/pull/push/branch), `url`, `directory`, `repo_dir` | General git operations |
-| `/git-smart` | POST | `action` (diff-summary/log-recent/suggest-commit/fix-conflict), `repo_dir` | AI-friendly smart git operations |
-
-### SSH, Services & Migration
-
-| Endpoint | Method | Parameters | Description |
-|---|---|---|---|
-| `/ssh-wizard` | POST | `action` (setup/status/stop) | Full SSH server setup with key generation |
-| `/service-guard` | POST | `action`, `name`, `cmd` | Background service management |
-| `/history-insight` | POST | `file`, `limit` | Analyze shell usage patterns, suggest aliases |
-| `/quick-cmd` | POST | `action`, `name`, `cmd` | Alias and shortcut management |
-| `/port-manage` | POST | `action`, `port` | Network port visibility |
-| `/migrate` | POST | `action` (backup/restore/preview), `output`, `file` | Full Termux environment migration |
-
-### Other
-
-| Endpoint | Method | Parameters | Description |
-|---|---|---|---|
-| `/ping` | GET | | Health check |
-| `/approve` | POST | `action`, `reason`, `method` | Ask the user to approve one exact action on the device — their fingerprint, or a dialog when no fingerprint is enrolled. An approved action runs once, within 3 minutes |
-| `/ask` | POST | `widget`, `title`, `hint`, `values`, `multiline`, `format` | Ask the user for input with a native Android dialog: text, number, radio, sheet, spinner, checkbox, date, time or speech. `values` are the choices; commas inside one are fine, backslashes are not |
-| `/tools` | GET | | Full OpenAI-format tool schemas for all tools (function-calling ready) |
-| `/catalog` | GET | | Compact tool catalog: `{name, desc, params, category}` per tool — small enough to embed in an LLM system prompt or a `use_tool` meta-tool |
-| `/env` | GET | | Environment info (cwd, home, pid) |
-| `/explain` | POST | `cmd` | Explain what a shell command does |
-| `/telephony-deviceinfo` | POST | | Device telephony info |
-| `/telephony-cellinfo` | POST | | Cell tower info |
-| `/infrared` | POST | `frequency`, `pattern` | IR blaster |
-| `/media-player` | POST | `action` | Media playback control |
-| `/storage-get` | POST | `output` | Get file via Android SAF |
-
-## Smart tools (0.12) — fewer tokens, verified results
-
-Every smart tool answers with a compact **digest** instead of raw output:
-
-```json
-{"ok": false, "exit": 100, "summary": "", "errors": [{"code": "E_PKG_NOT_FOUND", "subject": "htopp"}],
- "fixes": [{"id": "pkg_search_name", "risk": "safe"}], "excerpt": "…", "out_ref": "8f2c1a"}
-```
-
-Only six entries are listed in `tools/list` (`run_digest`, `out_read`, `context_pack`, `batch`,
-`tool_search`, `smart`). The other ~40 are reached with `smart {tool, params}` after `tool_search`
-returns their schema, so the per-request tool list stays small. Every one is also a REST endpoint
-(`POST /<tool>`) and a WebSocket tool; native MCP results carry `structuredContent`.
-
-| Group | Tools |
-|---|---|
-| Token savers | `run_digest`, `out_read`, `digest_text`, `context_pack` (ETag), `batch`, `tool_search`, `cost_meter` |
-| Verified one-call jobs | `pkg_ensure`, `file_edit`, `service_ensure`/`service_stop`, `port_free`, `project_profile`, `project_run`, `storage_clean`, `git_sync` |
-| Zero-AI paths | `intent` (local router), `fix_lookup`/`fix_apply` (FixGraph, 40 tested fixes with live success rates), `graph_query`/`graph_refresh` (SQLite device graph), short-TTL answer cache |
-| Accuracy | `shell_lint` (auto-rewrites), `plan_check` (dry-run), `tx_begin`/`tx_status`/`tx_commit`/`tx_rollback`, `answer_check` (grounding) |
-| New capabilities | `watch_add`/`watch_list`/`watch_remove`/`watch_toggle` (event reactor), `sandbox_run`/`sandbox_apply`/`sandbox_discard`, `explain_cmd`, `snapshot_env`/`restore_env`, `screen_ocr`, `camera_scan`, `notify_ask`, `recipe_share`, `health_watch`, `task_start`/`task_status`/`task_list` |
-
-MCP resources: `termux://graph`, `termux://changes`, `termux://health`, `termux://context`, `termux://out/<ref>`.
-
-Every shell call made by a smart tool has a hard timeout and runs in its own process group, so a hung
-`termux-*` command is killed with all of its children instead of blocking the connection.
-
-## 0.13 — hardened kernel, learning, autonomy, power tools
-
-**One execution kernel.** `/run`, WebSocket `run`, MCP `run`, `run_digest` and every shell-backed
-endpoint go through `kernel.gate()` — capability scope → `policy.json` → dangerous tier → warning tier
-(with one-shot device approvals) — and share one watchdog (`TERMUX_MCP_TIMEOUT`, `termux-*` helpers
-capped at 25 s, process groups via `start_new_session`). Transport-parity tests keep all four
-answering the same way. `GET /metrics` (and the `metrics` tool) shows per-tool p50/p95 latency, error
-rates, error codes and FixGraph success rates; each call is also a line in `~/.termux-mcp/logs/events.jsonl`.
-
-**Learn once, run forever.**
-
-| Tool | What it does |
-|---|---|
-| `learn_propose` / `learn_save` | Compact a finished task (failed and exploratory steps dropped, values → slots, verify kept) into a playbook that `intent`/`do` replays with no model |
-| semantic intent | A trigram + word TF-IDF phrase bank (no dependencies) catches paraphrases: "no room left on my phone" → `storage_clean` |
-| `fix_learn` / `fix_share` | A fix that worked becomes a candidate; after 2 successes FixGraph returns it. Export/import with a checksum (imports start untrusted) |
-| `plan_cache_get` / `plan_cache_put` / `plan_replay` | The same request on the same device replays its last good plan (plan_checked first) |
-| `prompt_pack` | Only the rules/tools a task type needs instead of one big system prompt |
-
-**Autonomy with guard-rails.**
-
-| Tool | What it does |
-|---|---|
-| `goal_run` | plan_check → steps in one transaction → one known fix per failure → verify → commit, or roll back and return a decision. Budget `{steps, minutes, fixes}` |
-| `policy_get` / `policy_set` | `deny_paths`, `allow_paths`, `deny_tools`, `network`, `pip: venv_only`, `sandbox_unknown_scripts`. Tightening is free; loosening needs an on-device approval (`approve action=policy_set`) |
-| `cap_issue` / `cap_list` / `cap_revoke` | Scoped, expiring `cap_…` tokens (tools, paths, read-only) for external MCP clients, enforced on REST, WebSocket, PTY and native MCP. Only their hash is stored |
-| `dry_run: true` | On every write tool: what would happen and what the kernel would decide, nothing executed |
-| `timeline` / `undo_task` | Changes grouped by task; undo any past task, with a warning when later tasks touched the same files |
-
-**Power tools:** `venv_ensure`, `node_ensure`, `proot_ensure`/`proot_run`, `cron_ensure`, `tunnel`
-(time-limited public URL), `web_fetch` (readable text / CSS selector), `db_query` (SQLite or CSV),
-`log_watch` (reactor `log_match`), `file_find` (indexed), `backup_incremental` (dedup + verify +
-restore; encrypted via restic), `clipboard_pipe`, `share_to`, `media_convert` (ffmpeg presets with
-progress), `ssh_hosts`/`ssh_run`.
-
-All of them are reached through `smart {tool, params}` / `tool_search`, so `tools/list` stays at six
-entries.
-
-## Streaming Output
-
-The `/run` endpoint and most tool endpoints use HTTP chunked transfer encoding. Output is sent line-by-line as the command produces it. Clients should read the response as a stream and process each chunk as it arrives.
-
-For long-running commands, a watchdog thread enforces the timeout. Package install commands automatically receive `-y` flags and `DEBIAN_FRONTEND=noninteractive` to prevent prompts.
+- Uses the real Linux home directory and filesystem instead of Termux's hard-coded Android home.
+- Uses Ubuntu's `apt`/ `apt-get` package manager. A small `pkg` compatibility command is installed inside the private virtual environment for legacy playbooks and commands.
+- Shell commands run as the account that starts the server. The server does not silently run commands with `sudo`.
+- Android-only endpoints return an unavailable-command error when the required Termux API executable is absent. They do not pretend to control Linux hardware.
+- Use normal Linux tools such as `nmcli`, `upower`, `pactl`, `brightnessctl`, `loginctl`, and `systemctl` through the guarded shell tools where installed.
 
 ## Security
 
-- **Command injection.** Every parameter interpolated into a shell command is
-  quoted with `shell_quote`, and every numeric parameter is validated by
-  `require_number`/`require_int` — a value that is not a number is rejected,
-  not passed through. Parameters embedded in double-quoted `echo` arguments
-  are quoted as whole strings, since double quotes still permit `$(...)`.
-- **Risk gate.** Commands are assessed before execution. The `DANGEROUS` tier
-  (e.g. `rm -rf /`, `mkfs.`, writes to `/dev/`, `chmod -R 777`) is refused on
-  every shell-backed endpoint — the check lives in the shared executor, so a
-  new endpoint cannot forget it. The `WARNING` tier (package removals,
-  recursive deletes) requires an explicit `confirmed: true` on `/run`, or an
-  approval for that exact command taken from the device with `/approve` —
-  which costs the user a fingerprint instead of a tap.
-- **Sensitive writes.** `/write` and `/patch` can edit anything outside
-  `/dev`, `/proc` and `/sys` — that is the point of them — but paths that
-  grant persistence require confirmation: `~/.ssh/`, `~/.bashrc`,
-  `~/.profile`, `~/.termux/` (including `boot/`), and anything under
-  `$PREFIX`. These are an SSH backdoor, code run on shell start, and code run
-  at device boot respectively.
-- **Authentication.** Off by default, and the server refuses to start unless it
-  is on when `HOST` is non-loopback. With `TERMUX_MCP_AUTH=on`, every endpoint
-  requires a Bearer token — POST, GET (except `/ping`, which the client's
-  connectivity probe needs before it holds a token), and the WebSocket, which
-  accepts the token via the `Authorization` header or a `?token=` query
-  parameter.
-  Capability tokens (`cap_…`) are accepted everywhere with their scope
-  enforced; they never get a raw PTY unless they name `terminal_open`.
-- **Network.** A request carrying an `Origin` header is rejected unless that
-  origin is allowlisted, so a page open on the device cannot reach the server
-  by resolving its own hostname to loopback. Requests with no `Origin` (the
-  app, `curl`, stdio clients) are unaffected.
-- Request body size is capped at 5 MB; WebSocket frames at 8 MB.
-- Request bodies are not logged — only their size.
-- Each WebSocket connection keeps its own `cd` state. Over HTTP the working
-  directory is **process-wide and shared between clients**, so one caller's
-  `cd` affects the next; chain `cd x && cmd` if you need isolation.
+The existing command risk gate, policy checks, capability-token scopes, path restrictions, file snapshots, and event logging are retained. Run as an unprivileged user. Grant elevated access only for individual operations that genuinely require it.
 
+## Development and tests
+
+```bash
+source .venv/bin/activate
+python -m pytest
+```
+
+The original `termux-mcp` and `termux-native-mcp` command names remain available as compatibility aliases. The Python import package remains `termux_mcp` to preserve compatibility with the upstream code.
 
 ## License
 
-**GNU Affero General Public License v3.0 (AGPL-3.0)**
-
-Copyleft — anyone who distributes a modified version, or hosts it as a
-service (SaaS), must release their changes under the same license.
-
-Note: versions up to 0.8.3 were released under the MIT License; those
-releases keep their MIT terms. AGPL-3.0 applies from 0.8.4 onward.
+AGPL-3.0. See [LICENSE](LICENSE).
