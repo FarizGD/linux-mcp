@@ -5,8 +5,8 @@ SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18",)
 DEFAULT_PROTOCOL_VERSION = "2025-06-18"
 
 
-SERVER_NAME = "termux-native-mcp"
-SERVER_VERSION = "0.15.0"
+SERVER_NAME = "linux-native-mcp"
+SERVER_VERSION = "0.16.0"
 
 
 def native_port() -> int:
