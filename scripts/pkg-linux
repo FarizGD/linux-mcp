@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+action="${1:-}"
+shift || true
+case "$action" in
+  update) exec apt-get update "$@" ;;
+  upgrade) exec apt-get upgrade "$@" ;;
+  install) exec apt-get install "$@" ;;
+  uninstall|remove) exec apt-get remove "$@" ;;
+  autoremove) exec apt-get autoremove "$@" ;;
+  clean) exec apt-get clean "$@" ;;
+  search) exec apt-cache search "$@" ;;
+  show) exec apt-cache show "$@" ;;
+  list-installed) exec dpkg-query -W -f='${Package} ${Version}\n' ;;
+  *) echo "Unsupported pkg action: $action" >&2; exit 2 ;;
+esac
