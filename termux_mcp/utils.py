@@ -84,7 +84,7 @@ def tmp_dir() -> str:
     candidates = [
         os.environ.get("TMPDIR", ""),
         os.path.join(
-            os.environ.get("PREFIX", "/data/data/com.termux/files/usr"), "tmp"
+            os.environ.get("PREFIX", "/usr/local"), "tmp"
         ),
     ]
     for candidate in candidates:
@@ -170,7 +170,7 @@ def is_sensitive_path(path: str) -> bool:
             return True
 
     prefix = os.environ.get(
-        "PREFIX", "/data/data/com.termux/files/usr"
+        "PREFIX", "/usr/local"
     ).replace("\\", "/").rstrip("/")
     for sub in _SENSITIVE_PREFIX_PARTS:
         if real == f"{prefix}/{sub}" or real.startswith(f"{prefix}/{sub}/"):
@@ -191,7 +191,7 @@ def encode_base64(content: str) -> str:
 
 def user_path(path) -> str:
     p = str(path or "").strip()
-    home = os.environ.get("HOME", "/data/data/com.termux/files/home")
+    home = os.path.expanduser("~")
     for prefix in ("~", "$HOME", "${HOME}"):
         if p == prefix or p.startswith(prefix + "/"):
             return home.rstrip("/") + p[len(prefix):]
