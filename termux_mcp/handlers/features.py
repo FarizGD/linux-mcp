@@ -12,7 +12,7 @@ from ..utils import (shell_quote, require_int, is_safe_path, is_sensitive_path,
 if TYPE_CHECKING:
     from http.server import BaseHTTPRequestHandler
 
-HOME = os.environ.get("HOME", "/data/data/com.termux/files/home")
+HOME = os.path.expanduser("~")
 
 CRON_FIELD = r"[0-9*/,\-]+"
 CRON_SCHEDULE_RE = re.compile(rf"{CRON_FIELD}(?: {CRON_FIELD}){{4}}")
