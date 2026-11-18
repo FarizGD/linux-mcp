@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/linux-mcp"
-BIN_DIR="${HOME}/.local/bin"
+BIN_DIR="$HOME/.local/bin"
 VENV="$DATA_DIR/venv"
 
 if [[ "${EUID}" -eq 0 ]]; then
@@ -11,19 +11,17 @@ if [[ "${EUID}" -eq 0 ]]; then
   exit 1
 fi
 
-for cmd in python3; do
-  command -v "$cmd" >/dev/null 2>&1 || {
-    echo "Missing $cmd. Install it with: sudo apt install python3 python3-venv python3-pip" >&2
-    exit 1
-  }
-done
+command -v python3 >/dev/null 2>&1 || {
+  echo "Missing python3. Install it with: sudo apt install python3 python3-venv python3-pip" >&2
+  exit 1
+}
 
 mkdir -p "$DATA_DIR" "$BIN_DIR"
 python3 -m venv "$VENV"
 "$VENV/bin/python" -m pip install --upgrade pip
 "$VENV/bin/python" -m pip install "$ROOT"
 
-# Legacy playbooks use "pkg". Keep the compatibility shim private to this venv.
+# Legacy playbooks use "pkg". Map the supported actions to Ubuntu's apt tools.
 cat > "$VENV/bin/pkg" <<'PKG'
 #!/usr/bin/env bash
 set -Eeuo pipefail
@@ -47,6 +45,7 @@ chmod 0755 "$VENV/bin/pkg"
 for command_name in linux-mcp linux-native-mcp termux-mcp termux-native-mcp; do
   cat > "$BIN_DIR/$command_name" <<EOF
 #!/usr/bin/env bash
+export PATH="$VENV/bin:\$PATH"
 exec "$VENV/bin/$command_name" "\$@"
 EOF
   chmod 0755 "$BIN_DIR/$command_name"
@@ -54,6 +53,6 @@ done
 
 echo
 echo "Linux-MCP installed."
-echo "Add this to PATH if needed: export PATH=\"\$HOME/.local/bin:\$PATH\""
+echo "Ensure $BIN_DIR is in PATH: export PATH=\"\$HOME/.local/bin:\$PATH\""
 echo "Start REST API: linux-mcp"
 echo "Start native MCP (stdio): linux-native-mcp --stdio"
