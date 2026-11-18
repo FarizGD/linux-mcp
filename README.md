@@ -18,7 +18,7 @@ sudo apt update
 sudo apt install -y git python3 python3-venv python3-pip curl procps iproute2 util-linux tar gzip
 git clone https://github.com/FarizGD/linux-mcp.git
 cd linux-mcp
-./scripts/install-ubuntu.sh
+bash scripts/install-ubuntu.sh
 ```
 
 The installer creates an isolated virtual environment at `~/.local/share/linux-mcp/venv`, installs the project, and adds `linux-mcp` and `linux-native-mcp` launchers to `~/.local/bin`. Add that directory to PATH if needed:
